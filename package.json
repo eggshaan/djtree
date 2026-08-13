@@ -1,0 +1,34 @@
+{
+  "name": "djtree",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -n server,web -c magenta,cyan \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:preview": "concurrently -n server,web -c magenta,cyan \"PORT=3001 node --watch server/index.js\" \"npm:dev:web\"",
+    "dev:server": "node --watch server/index.js",
+    "dev:web": "vite",
+    "build": "vite build",
+    "start": "NODE_ENV=production node server/index.js",
+    "seed": "node server/seed.js",
+    "typecheck": "tsc --noEmit",
+    "dev:cloud": "vite --mode cloud",
+    "build:cloud": "vite build --mode cloud",
+    "preview:cloud": "vite preview --mode cloud"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.112.3",
+    "express": "^4.19.2",
+    "lucide-react": "^1.31.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "concurrently": "^9.0.1",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10"
+  }
+}
