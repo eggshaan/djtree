@@ -12,7 +12,7 @@ Share sets with others by downloading and uploading lightweight json files w/ al
 
 ## Download
 
-**[djtree 0.1.0 for Apple Silicon](https://github.com/eggshaan/djtree/releases/download/v0.1.0/djtree-0.1.0-arm64.dmg)** (117 MB) · [all releases](https://github.com/eggshaan/djtree/releases)
+**[djtree 0.1.1 for Apple Silicon](https://github.com/eggshaan/djtree/releases/download/v0.1.1/djtree-0.1.1-arm64.dmg)** (118 MB) · [all releases](https://github.com/eggshaan/djtree/releases)
 
 1. Open the `.dmg` and drag **djtree** into Applications.
 2. Clear the quarantine flag macOS attached to the download:
@@ -31,8 +31,8 @@ rather not use the terminal, open the app once, let macOS refuse, then go to
 Check the download arrived intact:
 
 ```
-shasum -a 256 djtree-0.1.0-arm64.dmg
-78c3785553dab19b793b805798ff4c5c39c6b62df565c8bff8c5abc469a74226
+shasum -a 256 djtree-0.1.1-arm64.dmg
+4c84163e8b5fcaa5dbc716c1666290a78f1115e441ff89fbcbfba5466118aef7
 ```
 
 ### Why that step exists

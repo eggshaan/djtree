@@ -171,6 +171,11 @@ for (const [name, fn] of Object.entries(handlers)) {
 /* ------------------------------------------------------------- lifecycle */
 
 app.whenReady().then(() => {
+  // The packaged app takes its icon from the bundle. A dev run is just the
+  // Electron binary, so it has to be handed the artwork explicitly or the Dock
+  // shows Electron's own logo.
+  if (devServer) app.dock?.setIcon(join(root, 'build', 'icon.png'));
+
   buildMenu();
   createWindow();
 
