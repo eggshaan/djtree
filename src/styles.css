@@ -364,12 +364,24 @@ textarea { resize: vertical; line-height: 1.5; }
   color: var(--muted);
 }
 
+/*
+ * The window has no title bar of its own — the traffic lights are drawn over
+ * the top-left of this header, so it starts below them and doubles as the
+ * drag handle. Anything clickable inside has to opt back out of dragging.
+ */
 .library-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 10px 6px 14px;
+  padding: 32px 10px 6px 14px;
+  -webkit-app-region: drag;
 }
+.library-header button,
+.toolbar button,
+.toolbar input,
+.toolbar label,
+.toolbar select,
+.toolbar .toolbar-chip { -webkit-app-region: no-drag; }
 .library-header h1 {
   font-size: 14px;
   font-weight: 600;
@@ -679,10 +691,12 @@ textarea { resize: vertical; line-height: 1.5; }
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 7px 10px;
+  /* Clears the title bar strip, and drags the window from any empty spot. */
+  padding: 29px 10px 7px;
   border-bottom: 1px solid var(--line);
   background: var(--bg);
   flex-shrink: 0;
+  -webkit-app-region: drag;
 }
 .counts { font-variant-numeric: tabular-nums; }
 

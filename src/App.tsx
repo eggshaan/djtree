@@ -1,12 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Download, LogOut, Moon, PanelLeftOpen, PanelRightOpen, RotateCcw, Sun, Upload, Wand2, X,
+  Download, FolderOpen, Moon, PanelLeftOpen, PanelRightOpen, RotateCcw, Sun, Upload, Wand2, X,
 } from 'lucide-react';
-import type { Session } from '@supabase/supabase-js';
-import { cloudMode } from './api';
-import { client } from './supabase';
+import { api } from './api';
 import { Canvas, fitView } from './components/Canvas';
-import { SignIn } from './components/SignIn';
 import { EdgeInspector } from './components/EdgeInspector';
 import { GeneratorModal } from './components/GeneratorModal';
 import { Inspector } from './components/Inspector';
@@ -14,6 +11,7 @@ import { Library } from './components/Library';
 import { LinkForm } from './components/LinkForm';
 import { TrackForm } from './components/TrackForm';
 import { NODE_H, NODE_W } from './components/TrackNode';
+import { importSummary, prepareImport } from './lib/import';
 import { arrangeChain, type Positions } from './lib/layout';
 import { download, importBundle, parseBundle, toBundle } from './lib/transfer';
 import {
@@ -31,34 +29,11 @@ const SUGGESTION_COUNT = 6;
 
 type Theme = 'light' | 'dark';
 
-/**
- * In cloud mode the workspace must not mount until a session exists — row level
- * security would otherwise return an empty library, which looks exactly like
- * having lost everything. Local mode has no session and renders immediately.
- */
 export default function App() {
-  const [session, setSession] = useState<Session | null>(null);
-  const [checking, setChecking] = useState(cloudMode);
-
-  useEffect(() => {
-    if (!cloudMode) return;
-    const auth = client().auth;
-    auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setChecking(false);
-    });
-    const { data: sub } = auth.onAuthStateChange((_event, next) => setSession(next));
-    return () => sub.subscription.unsubscribe();
-  }, []);
-
-  if (cloudMode) {
-    if (checking) return <div className="boot">Checking your session…</div>;
-    if (!session) return <SignIn />;
-  }
-  return <Workspace email={session?.user.email ?? null} />;
+  return <Workspace />;
 }
 
-function Workspace({ email }: { email: string | null }) {
+function Workspace() {
   const graph = useGraph();
   const stageRef = useRef<HTMLElement>(null);
 
@@ -276,6 +251,50 @@ function Workspace({ email }: { email: string | null }) {
     setForm({ track: null, x: spot.x, y: spot.y });
   }, [nextSpot]);
 
+  /**
+   * Pick a folder, read the tags, write what came back. New nodes land in a
+   * block under whatever is already on the canvas, so an import never buries
+   * the graph you have been building.
+   */
+  const [importing, setImporting] = useState(false);
+  const importFolder = useCallback(async () => {
+    if (importing) return;
+    setImporting(true);
+    try {
+      const scan = await api.chooseFolder();
+      if (!scan) return; // dialog dismissed
+
+      const bottom = tracks.length ? Math.max(...tracks.map((t) => t.y)) + NODE_H + 120 : 0;
+      const { rows, skipped } = prepareImport(scan.rows, {
+        origin: { x: 0, y: bottom },
+        step: { x: NODE_W + 60, y: NODE_H + 48 },
+        columns: Math.max(4, Math.ceil(Math.sqrt(scan.rows.length))),
+      });
+
+      const result = rows.length
+        ? await graph.importTracks(rows)
+        : { added: [], updated: 0 };
+
+      graph.notify(
+        importSummary({
+          added: result.added.length,
+          updated: result.updated,
+          skipped: skipped.length,
+          unreadable: scan.unreadable.length,
+        }),
+      );
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : String(err));
+    } finally {
+      setImporting(false);
+    }
+  }, [importing, tracks, graph]);
+
+  // File → Add Music Folder… reaches the same code path as the button.
+  useEffect(() => api.onMenu((action) => {
+    if (action === 'import') void importFolder();
+  }), [importFolder]);
+
   const submitForm = useCallback(
     async (draft: TrackDraft) => {
       if (form?.track) {
@@ -407,6 +426,15 @@ function Workspace({ email }: { email: string | null }) {
 
           <button
             className="ghost tiny"
+            onClick={importFolder}
+            disabled={importing}
+            title="Read a folder of audio files into the library  (⌘O)"
+          >
+            <FolderOpen size={13} aria-hidden="true" /> {importing ? 'Reading…' : 'Add music'}
+          </button>
+
+          <button
+            className="ghost tiny"
             onClick={graph.undo}
             disabled={!graph.canUndo}
             title={
@@ -490,17 +518,6 @@ function Workspace({ email }: { email: string | null }) {
           >
             {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
           </button>
-
-          {cloudMode && (
-            <button
-              className="icon-btn"
-              onClick={() => client().auth.signOut()}
-              title={email ? `Signed in as ${email} — sign out` : 'Sign out'}
-              aria-label="Sign out"
-            >
-              <LogOut size={15} />
-            </button>
-          )}
 
           {!showInspector && (
             <button

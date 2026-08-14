@@ -9,3 +9,4 @@ data/
 
 # Library exports are your own data, not part of the project.
 djtree-library-*.json
+release/

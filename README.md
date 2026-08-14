@@ -4,8 +4,9 @@ A node graph for planning DJ sets. Add tracks with their BPM, get ranked
 suggestions for what mixes out of them, and wire the good transitions together
 so every branch off a track is a setlist u can actually play.
 
-No AI, no API keys, no network calls, the matching is arithmetic over ur own
-library, running in the browser.
+A Mac app. No AI, no API keys, no account, no network calls of any kind — the
+matching is arithmetic over ur own library, and that library is a SQLite file in
+ur Music folder that u can copy, back up or delete yourself.
 
 Share sets with others by downloading and uploading lightweight json files w/ all ur songs.
 
@@ -16,19 +17,37 @@ npm install
 npm run dev
 ```
 
-Then open http://localhost:5173.
+That starts Vite and opens the app against it, with dev tools attached and hot
+reloading. `npm start` runs the built app instead, and `npm run dist` packages a
+`.dmg` into `release/`.
 
-Want some data to poke at first? `npm run seed` drops in 12 example tracks
-(it refuses to run if your library already has anything in it).
+## Your music
 
-For a single-process setup, `npm run build && npm start` serves everything from
-http://localhost:3001.
+**Add music** in the toolbar (or **⌘O**) opens a folder picker and reads the
+tags off every audio file inside — title, artist, BPM, key, genre — for `.mp3`,
+`.m4a`, `.flac`, `.wav`, `.aiff`, `.ogg` and `.opus`. Nothing is copied or
+moved: a track remembers the path where its file already lives.
+
+If your library has been through rekordbox, Serato or Mixed In Key, the BPM and
+key are already written into the files and this is the whole import. Keys are
+normalized on the way in by the same Camelot parser the track form uses, so
+`8A`, `Abm` and `A minor` all land as `8A`.
+
+**A file with no BPM tag is not imported**, and the count of those is reported
+when the scan finishes. Every score in the app is built on tempo, so a guessed
+BPM would not be a small inaccuracy — it would be a track that lies about what
+it mixes into. Add those by hand, or tag them first.
+
+Re-importing a folder is safe and is how you pick up retagging: a file already
+in the library is matched on its path and updated rather than duplicated, and
+only empty fields are filled — anything you corrected by hand outranks the tag.
 
 ## Using it
 
 | Action | How |
 | --- | --- |
 | Add a track | `New track`, press `n`, or double-click empty grid |
+| Import a music folder | `Add music` in the toolbar, or `⌘O` |
 | Move a node | Drag it |
 | Pan / zoom | Drag the grid · `⌘`/`Ctrl` + scroll, or plain scroll to pan |
 | Build a transition | Drag the dot on a node's right edge onto another node, then log the mix |
@@ -175,74 +194,44 @@ after a backwards breadth-first sweep from the destination has labelled every
 track with its minimum hop distance. That lets it skip any branch that can't
 reach the target in the hops remaining, so dead ends are never explored.
 
-## Two backends
+## How it's built
 
-`src/api.ts` is the only thing that talks to storage, and it picks a backend from
-two env vars. Everything above it — `state.ts`, `lib/`, every component — is
-unaware of which is live.
+The window is a React app; the data lives in SQLite, opened directly by
+Electron's main process through Node's built-in `node:sqlite` — no native module
+to compile, no server, no port.
 
-| | Command | Storage |
-| --- | --- | --- |
-| Local (default) | `npm run dev` | Express + SQLite at `data/djtree.db` |
-| Cloud | `npm run dev:cloud` | Supabase Postgres, per-user |
+`src/api.ts` is the only thing above the boundary that knows storage exists. It
+calls `window.djtree`, which `electron/preload.cjs` exposes over
+`contextBridge` — Node stays switched off in the page, and the app can do
+exactly the calls on that list and nothing else. Each one lands on a function in
+`electron/repo.js`, which validates before it touches SQL: the renderer is
+treated as untrusted input, so a bug in the UI cannot write a malformed row.
 
-Cloud config lives in `.env.cloud`, which Vite loads **only** with
-`--mode cloud`. That is deliberate: putting it in `.env.local` would load it in
-every mode and silently replace your offline library with a sign-in screen.
-
-`api.ts` assigns the Supabase implementation to the local one's type with no
-cast, so if the two ever drift apart in shape it's a compile error rather than a
-runtime surprise in whichever mode you test less.
-
-### Cloud mode
-
-Sign-in is a **magic link** — no passwords are collected or stored. The workspace
-does not mount until a session exists, because row level security would
-otherwise return an empty library, which looks exactly like having lost
-everything.
-
-Isolation is enforced by Postgres, not by the client. Every table carries
-`user_id` defaulting to `auth.uid()`, with a policy of `auth.uid() = user_id`,
-and child tables use *composite* foreign keys — `(from_id, user_id)` references
-`tracks (id, user_id)` — so a row referencing another account's track is
-impossible rather than merely unlikely. Verified against the live API: an
-anonymous caller reads `[]` from all four tables and gets `42501 row-level
-security policy` on insert, including through the RPCs.
-
-Reordering a set and undo's restore rewrite several rows, so they run as Postgres
-functions (`set_setlist_tracks`, `restore_rows`) to stay atomic — the equivalent
-of the SQLite transactions the local server uses. Both are `SECURITY INVOKER`, so
-RLS still applies to them.
-
-**Schema changes.** The local build migrates itself on start; Postgres doesn't.
-Cloud schema changes ship as a file in `sql/`, run once against the project from
-the Supabase SQL editor. Currently that's `sql/transition-cues.sql`, which adds
-the cue-sheet columns and teaches `restore_rows` about them — without it, cloud
-mode saves links but drops their cue points.
-
-Undo works in cloud mode for the same reason it works locally: ids are
-`GENERATED BY DEFAULT AS IDENTITY`, and Postgres sequences never reissue a value,
-so a deleted row can be reinstated under its original id. `GENERATED ALWAYS`
-would have rejected that insert.
-
-**Free-tier limits worth knowing.** Projects pause after roughly a week of
-inactivity and need a manual click to wake. There are no automatic backups —
-which is why export/import exists.
+| | |
+| --- | --- |
+| `electron/main.js` | window, menu, IPC handlers |
+| `electron/preload.cjs` | the bridge — the complete list of what the page can do |
+| `electron/db.js` | connection, schema, additive migrations, startup backups |
+| `electron/repo.js` | every operation, with validation |
+| `electron/library.js` | folder scan and tag reading |
 
 ## Export and import
 
 The toolbar has download and upload buttons. Export writes the whole library
 (tracks, transitions, sets, and per-set layouts) to one JSON file; import adds a
-file's contents to whichever backend is live.
+file's contents to your library.
 
 Import **remaps every id** rather than preserving them, so it is safe to run
 against a library that already has content — nothing existing is modified or
-removed. That also makes it the migration path between the two backends.
+removed. That also makes it the way to merge two machines' libraries.
 
 ## Where your data lives
 
-SQLite at `data/djtree.db`, via Node's built-in `node:sqlite` (no native module
-to compile). Four tables: `tracks`, `transitions`, `setlists` and
+`~/Music/djtree/djtree.db`, with `~/Music/djtree/backups/` beside it. An
+ordinary folder in Finder on purpose — **File → Show Library Folder in Finder**
+opens it — so the library is yours to copy to another Mac, drop in a backup, or
+throw away. Nothing is hidden inside the `.app`, which the next build would
+replace. Four tables: `tracks`, `transitions`, `setlists` and
 `setlist_items`. Deleting a track cascades to its transitions and removes it
 from any set; deleting a set never touches the tracks in it. Set ordering is an
 explicit `position` column, rewritten wholesale on each edit so reordering never
@@ -251,23 +240,24 @@ overrides for tracks that survive it, so renaming or appending never discards a
 layout you arranged.
 
 Everything is in that one file — no `-wal`/`-shm` sidecars — so backing up is
-just copying `djtree.db`, even while the server is running. Point it elsewhere
-with `DJTREE_DB=/path/to.db`.
+just copying `djtree.db`, even with the app open. `DJTREE_DB=/path/to.db` points
+it at a different file, `DJTREE_DIR` at a different folder. The app also
+snapshots the database into `backups/` on every launch, keeping the last 15.
 
 ### Your library is meant to be kept
 
-Nothing in normal use wipes the database, and the server never drops a table.
+Nothing in normal use wipes the database, and the app never drops a table.
 Schema changes are additive migrations that run once and leave existing rows
 untouched, so upgrading never costs you tracks.
 
-**Automatic snapshots.** Every time the server starts it copies the database to
-`data/backups/djtree-<timestamp>.db`, keeping the last 15. It skips the copy
-when nothing changed since the last one, so restarts during development don't
-churn through the history. To roll back, stop the server and copy a snapshot
-over `data/djtree.db`:
+**Automatic snapshots.** Every launch copies the database to
+`~/Music/djtree/backups/djtree-<timestamp>.db`, keeping the last 15. It skips
+the copy when nothing changed since the last one, so opening the app twice in an
+evening doesn't churn through the history. To roll back, quit the app and copy a
+snapshot over the live file — in Finder, or:
 
 ```bash
-cp data/backups/djtree-2026-08-12T05-17-08.db data/djtree.db
+cp ~/Music/djtree/backups/djtree-2026-08-13T05-17-08.db ~/Music/djtree/djtree.db
 ```
 
 **Undo** (`⌘Z`) covers every mutation: adding, editing, deleting, moving,

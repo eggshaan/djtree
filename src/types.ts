@@ -14,6 +14,8 @@ export type Track = {
   x: number;
   y: number;
   created_at: string;
+  /** Where the audio lives on disk. Null for a track typed in by hand. */
+  file_path: string | null;
 };
 
 export type Transition = {
@@ -93,3 +95,40 @@ export type TrackDraft = {
 };
 
 export type Viewport = { x: number; y: number; k: number };
+
+/* ------------------------------------------------------------ library import */
+
+/** One audio file as the scanner found it, before the app normalizes anything. */
+export type ScannedFile = {
+  file_path: string;
+  title: string;
+  artist: string;
+  /** Null when the file carries no usable BPM tag. */
+  bpm: number | null;
+  /** The tagger's own spelling — "8A", "Abm", "F#min". Null when absent. */
+  music_key: string | null;
+  genre: string;
+};
+
+export type ScanResult = {
+  folders: string[];
+  rows: ScannedFile[];
+  /** How many audio files were seen, including ones that yielded no tags. */
+  scanned: number;
+  /** Files whose tags could not be parsed at all. */
+  unreadable: string[];
+};
+
+/** A scanned file after the app has normalized its key and genre. */
+export type ImportRow = {
+  file_path: string;
+  title: string;
+  artist: string;
+  bpm: number;
+  music_key: string | null;
+  genre: string;
+  x: number;
+  y: number;
+};
+
+export type ImportResult = { added: Track[]; updated: number };

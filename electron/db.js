@@ -1,13 +1,21 @@
+/**
+ * The database: one SQLite file, opened directly by the main process.
+ *
+ * It lives in ~/Music/djtree so it is an ordinary folder you can open in
+ * Finder — copy it, back it up, drop it on another Mac, or point DJTREE_DB
+ * somewhere else entirely. Nothing here is hidden inside the .app bundle,
+ * which would be wiped by the next update.
+ */
+
 import { DatabaseSync } from 'node:sqlite';
 import {
   copyFileSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync,
 } from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-
-export const dbPath = process.env.DJTREE_DB ?? join(root, 'data', 'djtree.db');
+export const libraryDir = process.env.DJTREE_DIR ?? join(homedir(), 'Music', 'djtree');
+export const dbPath = process.env.DJTREE_DB ?? join(libraryDir, 'djtree.db');
 mkdirSync(dirname(dbPath), { recursive: true });
 
 /** How many startup snapshots to keep before the oldest is dropped. */
@@ -15,8 +23,8 @@ const KEEP_BACKUPS = 15;
 
 /**
  * Snapshot the database before opening it. Runs on every start, but skips when
- * nothing has changed since the last snapshot, so `node --watch` restarts
- * during development don't churn through the history.
+ * nothing has changed since the last snapshot, so repeated launches during a
+ * quiet evening don't churn through the history.
  */
 function snapshot() {
   if (!existsSync(dbPath) || statSync(dbPath).size === 0) return;
@@ -54,7 +62,9 @@ export const db = new DatabaseSync(dbPath);
  * costs is real: committed rows live in a `-wal` sidecar until a checkpoint, so
  * copying djtree.db on its own silently loses recent work, and a `-wal` left
  * behind by a hard kill can be judged stale on the next open and dropped
- * wholesale. A rollback journal keeps everything in the one file.
+ * wholesale. A rollback journal keeps everything in the one file — which
+ * matters more here than it did on a server, because the whole point is that
+ * you can drag that one file out of Finder and have your library.
  */
 db.exec('PRAGMA journal_mode = DELETE');
 db.exec('PRAGMA synchronous = FULL');
@@ -117,6 +127,8 @@ db.exec(`
     setlist_id  INTEGER NOT NULL REFERENCES setlists(id) ON DELETE CASCADE,
     track_id    INTEGER NOT NULL REFERENCES tracks(id)   ON DELETE CASCADE,
     position    INTEGER NOT NULL,
+    x           REAL,
+    y           REAL,
     UNIQUE (setlist_id, position)
   );
 
@@ -127,24 +139,25 @@ db.exec(`
  * Migrations: additive only, so a database created by an older build keeps
  * every row it already has. Each entry runs once, when its column is missing.
  */
-const columns = db.prepare('PRAGMA table_info(tracks)').all().map((c) => c.name);
+const trackColumns = db.prepare('PRAGMA table_info(tracks)').all().map((c) => c.name);
 
-if (!columns.includes('favorite')) {
+if (!trackColumns.includes('favorite')) {
   db.exec('ALTER TABLE tracks ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0');
   console.log('migration: added tracks.favorite');
 }
 
 /*
- * Per-set position overrides. Null means "use the computed chain layout", so a
- * set only carries coordinates for tracks you actually dragged. These are
- * entirely separate from tracks.x/y — moving a node inside a set view must
- * never disturb the main canvas.
+ * Where the audio actually is. Null for anything typed in by hand, which is why
+ * the uniqueness lives in an index rather than the column: SQLite lets a UNIQUE
+ * index hold any number of NULLs, so hand-entered tracks never collide, while
+ * importing the same folder twice updates rather than duplicates.
  */
-/*
- * The cue sheet a link now asks for. Nullable, because every transition saved
- * before this existed has none — the panel shows those as "not recorded"
- * rather than inventing a number.
- */
+if (!trackColumns.includes('file_path')) {
+  db.exec('ALTER TABLE tracks ADD COLUMN file_path TEXT');
+  console.log('migration: added tracks.file_path');
+}
+db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_tracks_file ON tracks(file_path)');
+
 const transitionColumns = db.prepare('PRAGMA table_info(transitions)').all().map((c) => c.name);
 if (!transitionColumns.includes('bars')) {
   db.exec('ALTER TABLE transitions ADD COLUMN from_cue INTEGER');
@@ -160,5 +173,5 @@ if (!itemColumns.includes('x')) {
   console.log('migration: added setlist_items.x / .y');
 }
 
-/** node:sqlite returns null-prototype objects; re-shape them for JSON. */
+/** node:sqlite returns null-prototype objects; re-shape them for structured clone. */
 export const plain = (row) => (row ? { ...row } : row);

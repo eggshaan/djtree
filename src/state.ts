@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from './api';
 import type {
-  Setlist, Track, TrackDraft, Transition, TransitionDraft, TransitionPatch,
+  ImportRow, Setlist, Track, TrackDraft, Transition, TransitionDraft, TransitionPatch,
 } from './types';
 
 export type GraphStore = ReturnType<typeof useGraph>;
@@ -156,6 +156,29 @@ export function useGraph() {
         run: () => applyDeleteTrack(track.id),
       });
       return track;
+    },
+    [record, applyDeleteTrack],
+  );
+
+  /**
+   * Write a scanned folder into the library. One call rather than one per file,
+   * so importing a thousand tracks is a single transaction and a single undo
+   * step — and re-importing a folder updates instead of duplicating, which is
+   * why the count of touched rows comes back separately.
+   */
+  const importTracks = useCallback(
+    async (rows: ImportRow[]) => {
+      const result = await api.importTracks(rows);
+      if (result.added.length) {
+        setTracks((prev) => [...prev, ...result.added]);
+        record({
+          label: `Import ${result.added.length} track${result.added.length === 1 ? '' : 's'}`,
+          run: async () => {
+            for (const track of result.added) await applyDeleteTrack(track.id);
+          },
+        });
+      }
+      return result;
     },
     [record, applyDeleteTrack],
   );
@@ -490,11 +513,14 @@ export function useGraph() {
     loading,
     error,
     status,
+    /** Transient line in the status toast, cleared after a few seconds. */
+    notify: setStatus,
     clearError: () => setError(null),
     undo,
     canUndo: undoStack.length > 0,
     nextUndoLabel: undoStack[undoStack.length - 1]?.label ?? null,
     addTrack,
+    importTracks,
     updateTrack,
     toggleFavorite,
     removeTrack,
