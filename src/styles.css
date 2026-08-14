@@ -1337,13 +1337,17 @@ label.stack:last-child { margin-bottom: 0; }
 .gen-length { display: flex; align-items: center; gap: 12px; }
 .gen-length input[type="range"] { accent-color: var(--accent); background: none; border: 0; padding: 0; }
 .gen-length input[type="range"]:hover { background: none; }
-.gen-length-value {
-  font-size: 18px;
+.gen-length-number {
+  width: 68px;
+  flex-shrink: 0;
+  font-size: 16px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
-  min-width: 28px;
-  text-align: right;
+  text-align: center;
+  padding: 4px 6px;
 }
+/* The stepper arrows crowd a two-digit field; the slider is the coarse control. */
+.gen-length-number::-webkit-inner-spin-button { opacity: 0.35; }
 
 .gen-shapes { display: flex; flex-direction: column; gap: 5px; }
 .shape-card {

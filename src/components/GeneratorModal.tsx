@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Check, Sparkles, Star, Wand2 } from 'lucide-react';
 import { GenreChips, GenrePicker } from './GenrePicker';
 import {
@@ -23,7 +23,8 @@ type Props = {
 export function GeneratorModal({ tracks, transitions, settings, onSave, onClose }: Props) {
   const [genres, setGenres] = useState<string[]>([]);
   const [cohesion, setCohesion] = useState(true);
-  const [pool, setPool] = useState<Set<number>>(() => new Set(tracks.map((t) => t.id)));
+  /** Tracks you insist on. Empty by default — the search picks freely. */
+  const [locked, setLocked] = useState<Set<number>>(() => new Set());
   const [length, setLength] = useState(() => Math.min(6, Math.max(2, tracks.length)));
   const [shape, setShape] = useState<EnergyShape>('build');
   const [results, setResults] = useState<GeneratedSet[] | null>(null);
@@ -40,43 +41,51 @@ export function GeneratorModal({ tracks, transitions, settings, onSave, onClose 
 
   const genresInUse = useMemo(() => tracks.map((t) => t.genre ?? ''), [tracks]);
 
-  /** The rows the picker shows: everything, narrowed by the genre filter. */
-  const listed = useMemo(
+  /** What the search may draw on: the library, narrowed by the genre filter. */
+  const pool = useMemo(
     () => tracks.filter((t) => matchesGenres(t.genre ?? '', genres)),
     [tracks, genres],
   );
 
-  /* Choosing genres is the first question, so it re-stocks the song list rather
-   * than quietly leaving a selection from the previous genre behind. */
-  const firstRender = useRef(true);
-  useEffect(() => {
-    if (firstRender.current) { firstRender.current = false; return; }
-    setPool(new Set(listed.map((t) => t.id)));
-    // Only a change of genre re-stocks; editing the pool by hand must not.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [genres]);
+  /*
+   * Rows to show: the filtered library plus anything locked in, so a track you
+   * insisted on never disappears behind a genre you picked afterwards.
+   */
+  const listed = useMemo(() => {
+    const shown = new Set(pool.map((t) => t.id));
+    return tracks.filter((t) => shown.has(t.id) || locked.has(t.id));
+  }, [tracks, pool, locked]);
 
-  const poolTracks = useMemo(
-    () => listed.filter((t) => pool.has(t.id)),
-    [listed, pool],
-  );
-  const maxLength = Math.max(2, poolTracks.length);
+  const lockedTracks = useMemo(() => tracks.filter((t) => locked.has(t.id)), [tracks, locked]);
 
-  /** A row is a checkbox: click it to put the track in or out of the pool. */
+  /*
+   * The slider runs the length of everything the search can reach — the whole
+   * library, unless a genre filter narrows it — never the number of boxes you
+   * ticked. Locking tracks raises the floor, not the ceiling.
+   */
+  const reachable = useMemo(() => {
+    const ids = new Set(pool.map((t) => t.id));
+    for (const id of locked) ids.add(id);
+    return ids.size;
+  }, [pool, locked]);
+  const maxLength = Math.max(2, reachable);
+  const minLength = Math.max(2, lockedTracks.length);
+  const wanted = Math.min(Math.max(length, minLength), maxLength);
+
+  /** A row is a checkbox: tick it and that track is in the set for certain. */
   const toggle = (id: number) =>
-    setPool((prev) => {
+    setLocked((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
 
-  const selectAll = () => setPool(new Set(listed.map((t) => t.id)));
-
   const run = () => {
     const outcome = generateSetlists({
-      pool: poolTracks,
-      length: Math.min(length, maxLength),
+      pool,
+      required: lockedTracks,
+      length: wanted,
       shape,
       transitions,
       settings,
@@ -153,13 +162,12 @@ export function GeneratorModal({ tracks, transitions, settings, onSave, onClose 
             <div className="gen-grid">
               <section className="gen-block">
                 <div className="gen-block-head">
-                  <h3>Use these tracks</h3>
+                  <h3>Songs you definitely want</h3>
                   <div className="gen-quick">
-                    <button className="ghost tiny" onClick={selectAll}>All</button>
-                    <button className="ghost tiny" onClick={() => setPool(new Set())}>None</button>
+                    <button className="ghost tiny" onClick={() => setLocked(new Set())}>Clear</button>
                     <button
                       className="ghost tiny"
-                      onClick={() => setPool(new Set(listed.filter((t) => t.favorite).map((t) => t.id)))}
+                      onClick={() => setLocked(new Set(listed.filter((t) => t.favorite).map((t) => t.id)))}
                     >
                       <Star size={11} aria-hidden="true" /> Starred
                     </button>
@@ -167,7 +175,7 @@ export function GeneratorModal({ tracks, transitions, settings, onSave, onClose 
                 </div>
                 <div className="gen-pool">
                   {listed.map((t) => {
-                    const on = pool.has(t.id);
+                    const on = locked.has(t.id);
                     const genre = normalizeGenre(t.genre ?? '');
                     return (
                       <button
@@ -191,8 +199,9 @@ export function GeneratorModal({ tracks, transitions, settings, onSave, onClose 
                   )}
                 </div>
                 <p className="muted small pool-hint">
-                  {poolTracks.length} of {listed.length} selected · the slider decides how many
-                  of them end up in the set
+                  {lockedTracks.length
+                    ? `${lockedTracks.length} locked in — the rest gets filled from your library`
+                    : 'Tick anything you know you want. Leave it empty and the search picks freely.'}
                 </p>
               </section>
 
@@ -201,13 +210,35 @@ export function GeneratorModal({ tracks, transitions, settings, onSave, onClose 
                 <div className="gen-length">
                   <input
                     type="range"
-                    min={2}
+                    min={minLength}
                     max={maxLength}
-                    value={Math.min(length, maxLength)}
+                    value={wanted}
                     onChange={(e) => setLength(Number(e.target.value))}
+                    aria-label="How many tracks"
                   />
-                  <span className="gen-length-value">{Math.min(length, maxLength)}</span>
+                  <input
+                    className="gen-length-number"
+                    type="number"
+                    min={minLength}
+                    max={maxLength}
+                    value={wanted}
+                    onChange={(e) => {
+                      // Let the field empty out while typing; commit on blur.
+                      const n = Number(e.target.value);
+                      if (Number.isFinite(n) && e.target.value !== '') setLength(n);
+                    }}
+                    onBlur={(e) => {
+                      const n = Number(e.target.value);
+                      setLength(Number.isFinite(n) && n > 0 ? Math.min(Math.max(n, minLength), maxLength) : minLength);
+                    }}
+                    aria-label="How many tracks"
+                  />
                 </div>
+                <p className="muted small">
+                  Out of {maxLength} reachable
+                  {genres.length ? ' in these genres' : ' in your library'}
+                  {lockedTracks.length ? ` · at least ${minLength}, the ones you locked in` : ''}
+                </p>
 
                 <h3>Energy shape</h3>
                 <div className="gen-shapes">
@@ -233,8 +264,8 @@ export function GeneratorModal({ tracks, transitions, settings, onSave, onClose 
                 type="button"
                 className="primary"
                 onClick={run}
-                disabled={poolTracks.length < 2}
-                title={poolTracks.length < 2 ? 'Pick at least two tracks' : undefined}
+                disabled={reachable < 2}
+                title={reachable < 2 ? 'Two tracks have to be reachable' : undefined}
               >
                 <Sparkles size={14} aria-hidden="true" /> Generate
               </button>

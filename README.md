@@ -13,7 +13,7 @@ Share sets with others by downloading and uploading lightweight json files w/ al
 
 ## Download
 
-**[djtree 0.1.3 for Apple Silicon](https://github.com/eggshaan/djtree/releases/download/v0.1.3/djtree-0.1.3-arm64.dmg)** (118 MB) · [all releases](https://github.com/eggshaan/djtree/releases)
+**[djtree 0.1.4 for Apple Silicon](https://github.com/eggshaan/djtree/releases/download/v0.1.4/djtree-0.1.4-arm64.dmg)** (118 MB) · [all releases](https://github.com/eggshaan/djtree/releases)
 
 1. Open the `.dmg` and drag **djtree** into Applications.
 2. Clear the quarantine flag macOS attached to the download:
@@ -32,15 +32,15 @@ rather not use the terminal, open the app once, let macOS refuse, then go to
 Check the download arrived intact:
 
 ```
-shasum -a 256 djtree-0.1.3-arm64.dmg
-32942e0f9bf8e42ebf8b8c23b6a9c90947350d191d2c1fb4d226a2b897bd6fd0
+shasum -a 256 djtree-0.1.4-arm64.dmg
+3f8c3aeaf589a0c38c4bdc46847d656603cf873956694903bdbb5b312712ea16
 ```
 
 ### Updating
 
 When the app opens it asks GitHub once whether there is a newer release. If
-there is, a small bar appears in the corner of the window: **djtree 0.1.3 is
-available — you have 0.1.2**, with a button to the release notes. Dismiss it and
+there is, a small bar appears in the corner of the window: **djtree 0.1.5 is
+available — you have 0.1.4**, with a button to the release notes. Dismiss it and
 that version stays dismissed; the bar only comes back when something newer than
 it lands.
 
@@ -162,12 +162,31 @@ Panel visibility, theme, and match settings persist in `localStorage`.
 
 ## Generating sets
 
-The **Generate** button (toolbar, or the Sets tab) opens the generator: pick
-which tracks are eligible, how many you want, and the shape of the energy arc —
-build, peak, wave, cool down, or steady. It returns a handful of candidate sets
-ranked best-first, each hop labelled **rehearsed** (a transition already on your
-canvas) or **suggested** (one it proposed). Save one and it appears under
-**Sets** in the left sidebar.
+The **Generate** button (toolbar, or the Sets tab) opens the generator. It asks
+three things: which genres to draw from, which songs you already know you want,
+and how long the set should be.
+
+**The checklist is for certainties, not candidates.** Tick a song and it will be
+in the finished set; the search fills every other slot from the rest of your
+library. Leave it empty — the normal case — and nothing is fixed, so the search
+picks the whole running order. Locking a track it would never have chosen is how
+you make it build around that track instead of around its own preferences.
+
+**How many tracks** runs the length of your library, not the length of your
+ticks: the slider maxes out at everything the search can reach, and there is a
+number field beside it when you would rather type 14 than drag to it. Ticking
+more songs than the length raises the length to fit them rather than dropping
+one of your choices.
+
+A required track stays required even if a genre filter would have excluded it —
+checking a box is a decision, not a suggestion. Under the hood the constraint is
+enforced during the search rather than filtered afterwards: a partial set is
+abandoned the moment the songs you locked in outnumber the slots left, so the
+beam never fills up with candidates that cannot satisfy you.
+
+It returns a handful of candidate sets ranked best-first, each hop labelled
+**rehearsed** (a transition already on your canvas) or **suggested** (one it
+proposed). Save one and it appears under **Sets** in the left sidebar.
 
 Selecting a set **slides its tracks into a connected chain** on the canvas,
 numbered in play order, with everything else dimmed and left where it is. The

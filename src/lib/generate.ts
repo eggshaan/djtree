@@ -101,7 +101,13 @@ export type GeneratedSet = {
 };
 
 export type GenerateOptions = {
+  /** Everything the search may draw on — the library, narrowed by any genre filter. */
   pool: Track[];
+  /**
+   * Tracks that must appear in the finished set. The rest of the running order
+   * is filled from `pool`; a set that cannot fit them all is never returned.
+   */
+  required?: Track[];
   length: number;
   shape: EnergyShape;
   transitions: { from_id: number; to_id: number }[];
@@ -126,6 +132,8 @@ type Partial = {
   tracks: Track[];
   hops: Hop[];
   ids: Set<number>;
+  /** How many of the required tracks are in it already. */
+  locked: number;
   /** Search ranking, includes the saved-transition bonus. */
   rank: number;
 };
@@ -145,6 +153,7 @@ function finalScore(p: Partial, shape: EnergyShape, length: number, baseline: nu
 
 export function generateSetlists({
   pool,
+  required = [],
   length,
   shape,
   transitions,
@@ -153,10 +162,31 @@ export function generateSetlists({
   beamWidth = 40,
   results = 5,
 }: GenerateOptions): GenerateResult {
-  const requested = clamp(Math.round(length), 2, Math.max(2, pool.length));
-  if (pool.length < 2) return { sets: [], reachedLength: pool.length, requested };
+  /*
+   * A required track is in the running whether or not it survived the genre
+   * filter: checking it is a decision, not a suggestion.
+   */
+  const candidates = [...pool];
+  const known = new Set(pool.map((t) => t.id));
+  for (const track of required) {
+    if (!known.has(track.id)) {
+      candidates.push(track);
+      known.add(track.id);
+    }
+  }
+  const requiredIds = new Set(required.map((t) => t.id));
 
-  const baseline = baselineEnergy(pool);
+  // The set can never be shorter than the tracks you insisted on.
+  const requested = clamp(
+    Math.round(length),
+    Math.max(2, requiredIds.size),
+    Math.max(2, candidates.length),
+  );
+  if (candidates.length < 2) {
+    return { sets: [], reachedLength: candidates.length, requested };
+  }
+
+  const baseline = baselineEnergy(candidates);
   const savedEdges = new Set(transitions.map((t) => `${t.from_id}>${t.to_id}`));
 
   const cohesion = clamp(genreCohesion, 0, 1);
@@ -176,11 +206,24 @@ export function generateSetlists({
     return hopMean * 0.75 + energyFit * 0.25;
   };
 
-  let beam: Partial[] = pool.map((track) => {
-    const p: Partial = { tracks: [track], hops: [], ids: new Set([track.id]), rank: 0 };
+  /**
+   * A partial is hopeless once the tracks you locked in outnumber the slots
+   * left. Pruning that here rather than filtering at the end keeps the beam
+   * full of sets that can actually satisfy the constraint.
+   */
+  const feasible = (p: Partial) => requiredIds.size - p.locked <= requested - p.tracks.length;
+
+  let beam: Partial[] = candidates.map((track) => {
+    const p: Partial = {
+      tracks: [track],
+      hops: [],
+      ids: new Set([track.id]),
+      locked: requiredIds.has(track.id) ? 1 : 0,
+      rank: 0,
+    };
     p.rank = rankOf(p);
     return p;
-  });
+  }).filter(feasible);
   beam.sort((a, b) => b.rank - a.rank);
   beam = beam.slice(0, beamWidth);
 
@@ -192,7 +235,7 @@ export function generateSetlists({
 
     for (const p of beam) {
       const last = p.tracks[p.tracks.length - 1];
-      for (const cand of pool) {
+      for (const cand of candidates) {
         if (p.ids.has(cand.id)) continue;
         const pair = pairScore(last, cand, settings);
         if (!pair) continue; // tempo gap too wide to ride
@@ -210,8 +253,10 @@ export function generateSetlists({
           tracks: [...p.tracks, cand],
           hops: [...p.hops, hop],
           ids: new Set(p.ids).add(cand.id),
+          locked: p.locked + (requiredIds.has(cand.id) ? 1 : 0),
           rank: 0,
         };
+        if (!feasible(child)) continue;
         child.rank = rankOf(child);
         next.push(child);
       }
@@ -240,11 +285,21 @@ export function generateSetlists({
     })
     .sort((a, b) => b.score - a.score);
 
+  /*
+   * A full-length set is guaranteed to hold every required track — that is what
+   * the feasibility prune buys. Sets cut short by a tempo gap might not, so
+   * they only get shown when nothing complete came back at all.
+   */
+  const holdsAll = (set: GeneratedSet) =>
+    set.tracks.filter((t) => requiredIds.has(t.id)).length === requiredIds.size;
+  const complete = requiredIds.size ? scored.filter(holdsAll) : scored;
+  const ranked = complete.length ? complete : scored;
+
   const chosen: GeneratedSet[] = [];
   const openerCount = new Map<number, number>();
   const seen = new Set<string>();
 
-  for (const set of scored) {
+  for (const set of ranked) {
     if (chosen.length >= results) break;
     // One track is not a set. If nothing could be bridged, return nothing and
     // let `reachedLength` explain why.
