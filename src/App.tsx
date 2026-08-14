@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Download, FolderOpen, Moon, PanelLeftOpen, PanelRightOpen, RotateCcw, Sun, Upload, Wand2, X,
+  ArrowUpCircle, Download, FolderOpen, Moon, PanelLeftOpen, PanelRightOpen, RotateCcw, Sun,
+  Upload, Wand2, X,
 } from 'lucide-react';
 import { api } from './api';
 import { Canvas, centerOnTracks, fitView } from './components/Canvas';
@@ -23,6 +24,9 @@ import {
 } from './lib/match';
 import { useGraph, useStickyState } from './state';
 import type { Track, TrackDraft, Viewport } from './types';
+
+/** Remembers the version you waved off, so it isn't offered again. */
+const DISMISSED_UPDATE = 'djtree:dismissed-update';
 
 /** How many suggested next tracks get tinted on the canvas. */
 const SUGGESTION_COUNT = 6;
@@ -55,6 +59,8 @@ function Workspace() {
   const [pendingLink, setPendingLink] = useState<{ fromId: number; toId: number } | null>(null);
   const [activeSetlistId, setActiveSetlistId] = useState<number | null>(null);
   const [generatorOpen, setGeneratorOpen] = useState(false);
+  /** A newer release, once the launch check has found one and you haven't waved it off. */
+  const [update, setUpdate] = useState<{ latest: string; current: string } | null>(null);
   /** In-flight drag inside a set view, held locally so it runs at 60fps. */
   const [layoutDraft, setLayoutDraft] = useState<Positions>(() => new Map());
   const fileInput = useRef<HTMLInputElement>(null);
@@ -75,6 +81,21 @@ function Workspace() {
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
+
+  /*
+   * One version check per launch. It is deliberately quiet: no dialog, nothing
+   * at all when you are current or the check fails, and a version you have
+   * already dismissed stays dismissed until a newer one lands.
+   */
+  useEffect(() => {
+    let live = true;
+    api.updateCheck().then((info) => {
+      if (!live || !info.newer || !info.latest) return;
+      if (localStorage.getItem(DISMISSED_UPDATE) === info.latest) return;
+      setUpdate({ latest: info.latest, current: info.current });
+    }).catch(() => { /* offline is not news */ });
+    return () => { live = false; };
+  }, []);
 
   const { tracks, transitions, setlists } = graph;
 
@@ -732,6 +753,29 @@ function Workspace() {
           onSubmit={submitForm}
           onClose={() => setForm(null)}
         />
+      )}
+
+      {update && (
+        <div className="update-bar" role="status">
+          <ArrowUpCircle size={15} aria-hidden="true" />
+          <span>
+            <b>djtree {update.latest}</b> is available — you have {update.current}.
+          </span>
+          <button className="primary tiny" onClick={() => api.openLatestRelease()}>
+            What's new
+          </button>
+          <button
+            className="icon-btn tiny-btn"
+            onClick={() => {
+              localStorage.setItem(DISMISSED_UPDATE, update.latest);
+              setUpdate(null);
+            }}
+            title="Dismiss until the next version"
+            aria-label="Dismiss"
+          >
+            <X size={13} />
+          </button>
+        </div>
       )}
 
       {graph.error && (

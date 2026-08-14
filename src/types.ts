@@ -132,3 +132,9 @@ export type ImportRow = {
 };
 
 export type ImportResult = { added: Track[]; updated: number };
+
+/**
+ * What the launch check found. `latest` is null when the check failed — being
+ * offline is not something to interrupt anyone about.
+ */
+export type UpdateCheck = { current: string; latest: string | null; newer: boolean };

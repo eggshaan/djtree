@@ -6,14 +6,14 @@ so every branch off a track is a setlist u can actually play.
 
 A Mac app. No AI, no API keys, no account — the matching is arithmetic over ur
 own library, and that library is a SQLite file in ur Music folder that u can
-copy, back up or delete yourself. The only time it touches the network is when u
-ask it to check for a new version.
+copy, back up or delete yourself. The one thing it ever sends anywhere is a
+single request to GitHub when it opens, asking whether a newer version exists.
 
 Share sets with others by downloading and uploading lightweight json files w/ all ur songs.
 
 ## Download
 
-**[djtree 0.1.2 for Apple Silicon](https://github.com/eggshaan/djtree/releases/download/v0.1.2/djtree-0.1.2-arm64.dmg)** (118 MB) · [all releases](https://github.com/eggshaan/djtree/releases)
+**[djtree 0.1.3 for Apple Silicon](https://github.com/eggshaan/djtree/releases/download/v0.1.3/djtree-0.1.3-arm64.dmg)** (118 MB) · [all releases](https://github.com/eggshaan/djtree/releases)
 
 1. Open the `.dmg` and drag **djtree** into Applications.
 2. Clear the quarantine flag macOS attached to the download:
@@ -32,21 +32,31 @@ rather not use the terminal, open the app once, let macOS refuse, then go to
 Check the download arrived intact:
 
 ```
-shasum -a 256 djtree-0.1.2-arm64.dmg
-0d0c01456c0a6adce0b6e981d6d66493dee11d9be99bc75ed04439ff2987da9c
+shasum -a 256 djtree-0.1.3-arm64.dmg
+32942e0f9bf8e42ebf8b8c23b6a9c90947350d191d2c1fb4d226a2b897bd6fd0
 ```
 
 ### Updating
 
-**djtree → Check for Updates…** asks GitHub what the newest release is and
-tells you if you are behind. It only runs when you pick it — nothing checks on
-launch, on a timer, or in the background — so an install that never uses the
-menu item never makes a network request at all.
+When the app opens it asks GitHub once whether there is a newer release. If
+there is, a small bar appears in the corner of the window: **djtree 0.1.3 is
+available — you have 0.1.2**, with a button to the release notes. Dismiss it and
+that version stays dismissed; the bar only comes back when something newer than
+it lands.
 
-There is no in-place install: without a Developer ID signature macOS will not
-let an app update itself, so the dialog opens the release page and you drag the
-new copy over the old one, quarantine step and all. Which is what the next
-section is about.
+If you are current, or the check fails because you are offline, nothing happens
+at all — no dialog, no error, no bar. **djtree → Check for Updates…** asks the
+same question on demand and always answers out loud, which is the one to use
+when you want confirmation either way.
+
+That launch request is the app's only network traffic: it sends nothing but the
+request itself, and there is no telemetry, account or identifier attached to it.
+If you would rather it never fired, the check is a single call in
+[`src/App.tsx`](src/App.tsx) — delete it and the app is fully offline again.
+
+There is no in-place install. Updating an app with no Developer ID signature is
+not something macOS allows, so the button opens the release page and you drag
+the new copy over the old one, quarantine step and all.
 
 ### Why the quarantine step exists
 

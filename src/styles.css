@@ -1593,6 +1593,36 @@ label.stack:last-child { margin-bottom: 0; }
 .genre-chip svg { opacity: 0.65; }
 .genre-chip:hover svg { opacity: 1; }
 
+/* --------------------------------------------------------- update notice */
+
+/*
+ * Sits above the toasts rather than replacing them: a new version is news, not
+ * an event, so it waits at the bottom of the window until you deal with it
+ * instead of timing out like a status line.
+ */
+.update-bar {
+  position: fixed;
+  bottom: 18px;
+  right: 18px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(460px, calc(100vw - 36px));
+  padding: 9px 10px 9px 13px;
+  font-size: 12px;
+  color: var(--text-soft);
+  background: var(--panel);
+  border: 1px solid var(--accent-line);
+  border-left: 3px solid var(--accent);
+  border-radius: 7px;
+  box-shadow: var(--shadow-lg);
+  z-index: 61;
+}
+.update-bar svg { color: var(--accent); flex-shrink: 0; }
+.update-bar span { flex: 1; min-width: 0; }
+.update-bar b { color: var(--text); font-weight: 600; }
+.update-bar .primary.tiny { flex-shrink: 0; padding: 3px 9px; font-size: 11px; }
+
 /* ---------------------------------------------------------------- toast */
 
 .toast {

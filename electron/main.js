@@ -62,29 +62,54 @@ function createWindow() {
 
 const RELEASES_API = 'https://api.github.com/repos/eggshaan/djtree/releases/latest';
 
+/** Set by the last successful check, so the renderer never hands us a URL. */
+let latestUrl = null;
+
 /**
- * Asks GitHub what the newest release is.
- *
- * This is the only network call djtree ever makes, and it only happens when
- * you pick the menu item — nothing checks on launch, on a timer, or in the
- * background. That keeps "this app does not talk to anything" true for anyone
- * who never clicks it.
+ * Asks GitHub what the newest release is. Returns null when the network, the
+ * API or the response shape lets us down — a failed check is not an error the
+ * user needs to hear about unless they asked for one.
  */
-async function checkForUpdates() {
+async function latestRelease() {
+  const res = await fetch(RELEASES_API, {
+    headers: { Accept: 'application/vnd.github+json', 'User-Agent': `djtree/${app.getVersion()}` },
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!res.ok) throw new Error(`GitHub answered ${res.status}`);
+  const body = await res.json();
+  const latest = String(body.tag_name ?? '').replace(/^v/i, '');
+  if (!latest) throw new Error('no version in the response');
+  // Only ever open our own release page, whatever the API says.
+  const url = typeof body.html_url === 'string'
+    && body.html_url.startsWith('https://github.com/eggshaan/djtree/')
+    ? body.html_url
+    : 'https://github.com/eggshaan/djtree/releases/latest';
+  return { latest, url };
+}
+
+/**
+ * The quiet check the window runs once on open. Silent about everything except
+ * an actual new version: no dialog, no error, nothing when you are current.
+ */
+async function updateCheck() {
+  const current = app.getVersion();
+  try {
+    const { latest, url } = await latestRelease();
+    latestUrl = url;
+    return { current, latest, newer: isNewer(latest, current) };
+  } catch {
+    return { current, latest: null, newer: false };
+  }
+}
+
+/** The menu item: same question, but it always answers out loud. */
+async function checkForUpdatesLoudly() {
   const current = app.getVersion();
   let latest;
-  let url;
-
   try {
-    const res = await fetch(RELEASES_API, {
-      headers: { Accept: 'application/vnd.github+json', 'User-Agent': `djtree/${current}` },
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!res.ok) throw new Error(`GitHub answered ${res.status}`);
-    const body = await res.json();
-    latest = String(body.tag_name ?? '').replace(/^v/, '');
-    url = body.html_url;
-    if (!latest) throw new Error('no version in the response');
+    const found = await latestRelease();
+    latest = found.latest;
+    latestUrl = found.url;
   } catch (err) {
     await dialog.showMessageBox(win ?? undefined, {
       type: 'warning',
@@ -117,7 +142,7 @@ async function checkForUpdates() {
     defaultId: 0,
     cancelId: 1,
   });
-  if (response === 0 && url) shell.openExternal(url);
+  if (response === 0) shell.openExternal(latestUrl);
 }
 
 /* ------------------------------------------------------------------ menu */
@@ -128,7 +153,7 @@ function buildMenu() {
       label: app.name,
       submenu: [
         { role: 'about' },
-        { label: 'Check for Updates…', click: () => { void checkForUpdates(); } },
+        { label: 'Check for Updates…', click: () => { void checkForUpdatesLoudly(); } },
         { type: 'separator' },
         { role: 'hide' },
         { role: 'hideOthers' },
@@ -220,6 +245,14 @@ const handlers = {
   },
 
   paths: () => ({ libraryDir, dbPath }),
+
+  updateCheck: () => updateCheck(),
+
+  /** Opens the release page from the last check. The page never supplies a URL. */
+  openLatestRelease: () => {
+    shell.openExternal(latestUrl ?? 'https://github.com/eggshaan/djtree/releases/latest');
+    return { ok: true };
+  },
 };
 
 for (const [name, fn] of Object.entries(handlers)) {

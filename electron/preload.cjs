@@ -29,6 +29,8 @@ contextBridge.exposeInMainWorld('djtree', {
   chooseFolder: call('chooseFolder'),
   revealLibrary: call('revealLibrary'),
   paths: call('paths'),
+  updateCheck: call('updateCheck'),
+  openLatestRelease: call('openLatestRelease'),
 
   /** Menu items the window has to act on, e.g. File → Add Music Folder. */
   onMenu: (handler) => {

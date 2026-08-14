@@ -9,7 +9,7 @@
 
 import type {
   Graph, ImportRow, ImportResult, ScanResult, Setlist, Track, TrackDraft, Transition,
-  TransitionPatch,
+  TransitionPatch, UpdateCheck,
 } from './types';
 
 /** What preload.cjs puts on the window. */
@@ -42,6 +42,8 @@ type Bridge = {
   chooseFolder: () => Promise<ScanResult | null>;
   revealLibrary: () => Promise<{ ok: true }>;
   paths: () => Promise<{ libraryDir: string; dbPath: string }>;
+  updateCheck: () => Promise<UpdateCheck>;
+  openLatestRelease: () => Promise<{ ok: true }>;
   onMenu: (handler: (action: string) => void) => () => void;
 };
 
@@ -87,6 +89,8 @@ export const api = {
   importTracks: (rows: ImportRow[]) => bridge().importTracks(rows),
   chooseFolder: () => bridge().chooseFolder(),
   revealLibrary: () => bridge().revealLibrary(),
+  updateCheck: () => bridge().updateCheck(),
+  openLatestRelease: () => bridge().openLatestRelease(),
   onMenu: (handler: (action: string) => void) => bridge().onMenu(handler),
 };
 
