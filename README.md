@@ -10,7 +10,56 @@ ur Music folder that u can copy, back up or delete yourself.
 
 Share sets with others by downloading and uploading lightweight json files w/ all ur songs.
 
-## Run it
+## Download
+
+**[djtree 0.1.0 for Apple Silicon](https://github.com/eggshaan/djtree/releases/download/v0.1.0/djtree-0.1.0-arm64.dmg)** (117 MB) · [all releases](https://github.com/eggshaan/djtree/releases)
+
+1. Open the `.dmg` and drag **djtree** into Applications.
+2. Clear the quarantine flag macOS attached to the download:
+
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/djtree.app
+   ```
+
+3. Open it from Applications as normal. This is a one-time step — it never
+   comes up again for that copy.
+
+Apple Silicon only for now; an Intel Mac has to build from source. If you would
+rather not use the terminal, open the app once, let macOS refuse, then go to
+**System Settings → Privacy & Security** and click **Open Anyway**.
+
+Check the download arrived intact:
+
+```
+shasum -a 256 djtree-0.1.0-arm64.dmg
+78c3785553dab19b793b805798ff4c5c39c6b62df565c8bff8c5abc469a74226
+```
+
+### Why that step exists
+
+macOS tags everything downloaded from the internet with a `com.apple.quarantine`
+attribute. Before running a quarantined app, Gatekeeper looks for a signature
+made with a **Developer ID** — a certificate issued by Apple, which requires
+membership in the Apple Developer Program at **$99 a year, every year**. djtree
+has no such signature, so Gatekeeper refuses it outright, usually with a message
+claiming the app is "damaged". Nothing is damaged; that is just what an
+unsigned app looks like to a signature check.
+
+Paying that yearly fee would mean charging for the app or absorbing the cost
+indefinitely. Skipping it is what keeps djtree free and unmetered — the tradeoff
+is this one command.
+
+**What you are actually trading.** The command strips the download tag from this
+one app in your Applications folder. It does not disable Gatekeeper, does not
+change a system setting, and has no effect on anything else you install. What
+you give up is the guarantee Gatekeeper would otherwise give you: that the app
+came from a developer Apple has identified, and has not been altered since it
+was signed. That is a real guarantee and it is worth having — so if you would
+rather not extend that trust to a stranger's binary, don't. Every line of this
+app is in this repository. Clone it and run `npm install && npm run dist`, and
+you get the same `.app` out of code you can read.
+
+## Run it from source
 
 ```bash
 npm install
