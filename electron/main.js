@@ -11,6 +11,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { closeDb, dbPath, libraryDir } from './db.js';
 import { scanFolder } from './library.js';
+import { isNewer } from './version.js';
 import * as repo from './repo.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -57,6 +58,68 @@ function createWindow() {
   });
 }
 
+/* ---------------------------------------------------------------- updates */
+
+const RELEASES_API = 'https://api.github.com/repos/eggshaan/djtree/releases/latest';
+
+/**
+ * Asks GitHub what the newest release is.
+ *
+ * This is the only network call djtree ever makes, and it only happens when
+ * you pick the menu item — nothing checks on launch, on a timer, or in the
+ * background. That keeps "this app does not talk to anything" true for anyone
+ * who never clicks it.
+ */
+async function checkForUpdates() {
+  const current = app.getVersion();
+  let latest;
+  let url;
+
+  try {
+    const res = await fetch(RELEASES_API, {
+      headers: { Accept: 'application/vnd.github+json', 'User-Agent': `djtree/${current}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) throw new Error(`GitHub answered ${res.status}`);
+    const body = await res.json();
+    latest = String(body.tag_name ?? '').replace(/^v/, '');
+    url = body.html_url;
+    if (!latest) throw new Error('no version in the response');
+  } catch (err) {
+    await dialog.showMessageBox(win ?? undefined, {
+      type: 'warning',
+      message: "Couldn't check for updates",
+      detail: `${err?.message ?? err}\n\nYou are running ${current}.`,
+      buttons: ['OK'],
+    });
+    return;
+  }
+
+  if (!isNewer(latest, current)) {
+    await dialog.showMessageBox(win ?? undefined, {
+      type: 'info',
+      message: `djtree ${current} is up to date`,
+      detail: 'Nothing newer has been released.',
+      buttons: ['OK'],
+    });
+    return;
+  }
+
+  // No silent install: updating a build with no Developer ID signature means
+  // downloading the disk image and dragging it over, same as the first time.
+  const { response } = await dialog.showMessageBox(win ?? undefined, {
+    type: 'info',
+    message: `djtree ${latest} is available`,
+    detail: `You have ${current}. Opening the release page — download the .dmg and drag it `
+      + 'over your copy in Applications, then clear the quarantine flag again:\n\n'
+      + 'xattr -dr com.apple.quarantine /Applications/djtree.app',
+    buttons: ['Open Release Page', 'Later'],
+    defaultId: 0,
+    cancelId: 1,
+  });
+  if (response === 0 && url) shell.openExternal(url);
+}
+
 /* ------------------------------------------------------------------ menu */
 
 function buildMenu() {
@@ -65,6 +128,7 @@ function buildMenu() {
       label: app.name,
       submenu: [
         { role: 'about' },
+        { label: 'Check for Updates…', click: () => { void checkForUpdates(); } },
         { type: 'separator' },
         { role: 'hide' },
         { role: 'hideOthers' },

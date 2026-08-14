@@ -3,7 +3,7 @@ import {
   Download, FolderOpen, Moon, PanelLeftOpen, PanelRightOpen, RotateCcw, Sun, Upload, Wand2, X,
 } from 'lucide-react';
 import { api } from './api';
-import { Canvas, fitView } from './components/Canvas';
+import { Canvas, centerOnTracks, fitView } from './components/Canvas';
 import { EdgeInspector } from './components/EdgeInspector';
 import { GeneratorModal } from './components/GeneratorModal';
 import { Inspector } from './components/Inspector';
@@ -42,6 +42,11 @@ function Workspace() {
   const viewportRef = useRef(viewport);
   viewportRef.current = viewport;
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  /*
+   * Multi-select. `selectedId` stays the primary — the one the details panel
+   * describes — and this is everything highlighted, which is what a drag moves.
+   */
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
   const [selectedEdgeId, setSelectedEdgeId] = useState<number | null>(null);
   const [previewPath, setPreviewPath] = useState<number[]>([]);
   const [routeTargetId, setRouteTargetId] = useState<number | null>(null);
@@ -175,11 +180,42 @@ function Workspace() {
     }));
   }, []);
 
+  /**
+   * ⌘/⇧-click adds a node to the selection (or takes it out again); a plain
+   * click replaces the selection with just that node.
+   */
+  const selectNode = useCallback((id: number | null, additive = false) => {
+    if (id == null) {
+      setSelectedId(null);
+      setSelectedIds(new Set());
+      return;
+    }
+    if (!additive) {
+      setSelectedId(id);
+      setSelectedIds(new Set([id]));
+      return;
+    }
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+        // The panel follows the selection: drop the primary and something else
+        // that is still selected takes over, or nothing does.
+        setSelectedId((current) => (current === id ? next.values().next().value ?? null : current));
+      } else {
+        next.add(id);
+        setSelectedId(id);
+      }
+      return next;
+    });
+  }, []);
+
   const focusTrack = useCallback(
     (id: number) => {
       const track = tracks.find((t) => t.id === id);
       if (!track) return;
       setSelectedId(id);
+      setSelectedIds(new Set([id]));
       setSelectedEdgeId(null);
       centerOn(track);
     },
@@ -221,7 +257,14 @@ function Workspace() {
     const isArranged = !!setLayout;
     if (isArranged && !wasArranged.current) {
       cameraBeforeArrange.current = viewportRef.current;
-      setViewport(fitView(tracks, stageRef.current, setLayout));
+      // Only the set's own tracks, and only a pan — the zoom you were working
+      // at is the zoom you keep.
+      const byId = new Map(tracks.map((t) => [t.id, t]));
+      const members = setMemberIds.flatMap((id) => {
+        const track = byId.get(id);
+        return track ? [track] : [];
+      });
+      setViewport((v) => centerOnTracks(members, stageRef.current, setLayout, v));
     } else if (!isArranged && wasArranged.current) {
       const saved = cameraBeforeArrange.current;
       if (saved) setViewport(saved);
@@ -314,17 +357,25 @@ function Workspace() {
       return;
     }
     if (!selected) return;
+
+    // Delete takes the whole selection, not just the node the panel happens to
+    // be describing — otherwise selecting five and pressing Delete removes one.
+    const doomed = selectedIds.size ? tracks.filter((t) => selectedIds.has(t.id)) : [selected];
+    const ids = new Set(doomed.map((t) => t.id));
     const linked = transitions.filter(
-      (t) => t.from_id === selected.id || t.to_id === selected.id,
+      (t) => ids.has(t.from_id) || ids.has(t.to_id),
     ).length;
+
+    const subject = doomed.length === 1 ? `"${doomed[0].title}"` : `${doomed.length} tracks`;
     const message = linked
-      ? `Delete "${selected.title}" and its ${linked} transition${linked === 1 ? '' : 's'}?`
-      : `Delete "${selected.title}"?`;
+      ? `Delete ${subject} and ${linked} transition${linked === 1 ? '' : 's'}?`
+      : `Delete ${subject}?`;
     if (!window.confirm(message)) return;
-    graph.removeTrack(selected.id);
-    setSelectedId(null);
+
+    for (const track of doomed) graph.removeTrack(track.id);
+    selectNode(null);
     setPreviewPath([]);
-  }, [selected, selectedEdge, transitions, graph]);
+  }, [selected, selectedIds, selectedEdge, tracks, transitions, graph, selectNode]);
 
   /* ---------------------------------------------------------- keyboard */
 
@@ -343,7 +394,7 @@ function Workspace() {
 
       switch (e.key) {
         case 'Escape':
-          setSelectedId(null);
+          selectNode(null);
           setSelectedEdgeId(null);
           setPreviewPath([]);
           break;
@@ -536,26 +587,33 @@ function Workspace() {
           transitions={transitions}
           viewport={viewport}
           setViewport={setViewport}
-          selectedId={selectedId}
+          selectedIds={selectedIds}
           selectedEdgeId={selectedEdgeId}
           snapToGrid={snapToGrid}
           suggestions={suggestions}
           highlightPath={highlightIds}
           layout={setLayout}
-          onSelect={setSelectedId}
+          onSelect={selectNode}
           onSelectEdge={setSelectedEdgeId}
           onMove={graph.moveTrack}
           onCommit={graph.commitPositions}
-          onLayoutMove={(id, x, y) =>
-            setLayoutDraft((prev) => new Map(prev).set(id, { x, y }))
-          }
-          onLayoutCommit={(id, x, y) => {
-            if (activeSetlistId == null) return;
-            // The optimistic store update takes over from the draft immediately.
-            graph.moveInSetlist(activeSetlistId, [{ track_id: id, x, y }]);
+          onLayoutMove={(moves) =>
             setLayoutDraft((prev) => {
               const next = new Map(prev);
-              next.delete(id);
+              for (const m of moves) next.set(m.id, { x: m.x, y: m.y });
+              return next;
+            })
+          }
+          onLayoutCommit={(moves) => {
+            if (activeSetlistId == null) return;
+            // The optimistic store update takes over from the draft immediately.
+            graph.moveInSetlist(
+              activeSetlistId,
+              moves.map((m) => ({ track_id: m.id, x: m.x, y: m.y })),
+            );
+            setLayoutDraft((prev) => {
+              const next = new Map(prev);
+              for (const m of moves) next.delete(m.id);
               return next;
             });
           }}

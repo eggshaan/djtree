@@ -1297,10 +1297,7 @@ label.stack:last-child { margin-bottom: 0; }
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 4px;
-  /* ⇧-clicking a range must not paint the rows blue as a text selection. */
-  user-select: none;
 }
-.gen-pool:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 1px; }
 .pool-genre { max-width: 96px; overflow: hidden; text-overflow: ellipsis; }
 .pool-hint { line-height: 1.45; }
 .pool-row {

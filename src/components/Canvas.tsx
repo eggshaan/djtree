@@ -73,13 +73,15 @@ type Interaction =
   | { type: 'pan'; pointerX: number; pointerY: number; originX: number; originY: number }
   | {
       type: 'drag';
-      id: number;
-      dx: number;
-      dy: number;
+      /** The node under the pointer. Its snapped position sets the group's offset. */
+      primary: number;
+      /** Everything moving — the whole selection when the primary is part of one. */
+      ids: number[];
+      /** World point where the drag began. */
+      origin: { x: number; y: number };
+      /** Where each node sat before the drag, so the move can be undone. */
+      start: Map<number, { x: number; y: number }>;
       moved: boolean;
-      /** Where the node sat before the drag, so the move can be undone. */
-      fromX: number;
-      fromY: number;
       /** True when the drag edits the set view's layout, not the track itself. */
       inLayout: boolean;
     }
@@ -90,7 +92,8 @@ type Props = {
   transitions: Transition[];
   viewport: Viewport;
   setViewport: React.Dispatch<React.SetStateAction<Viewport>>;
-  selectedId: number | null;
+  /** Every selected node. Dragging any one of them drags all of them. */
+  selectedIds: Set<number>;
   selectedEdgeId: number | null;
   snapToGrid: boolean;
   /** trackId -> match score, used to tint suggested next tracks. */
@@ -102,7 +105,8 @@ type Props = {
    * Never persisted — releasing the set slides everything home.
    */
   layout: Positions | null;
-  onSelect: (id: number | null) => void;
+  /** `additive` is a ⌘/⇧-click: add to or remove from the selection. */
+  onSelect: (id: number | null, additive?: boolean) => void;
   onSelectEdge: (id: number | null) => void;
   onMove: (id: number, x: number, y: number) => void;
   onCommit: (
@@ -110,9 +114,9 @@ type Props = {
     previous?: { id: number; x: number; y: number }[],
   ) => void;
   /** Live drag inside a set view — local only, no persistence. */
-  onLayoutMove: (id: number, x: number, y: number) => void;
+  onLayoutMove: (moves: { id: number; x: number; y: number }[]) => void;
   /** Drag finished inside a set view; persist to that set's overrides. */
-  onLayoutCommit: (id: number, x: number, y: number) => void;
+  onLayoutCommit: (moves: { id: number; x: number; y: number }[]) => void;
   onConnect: (fromId: number, toId: number) => void;
   onCreateAt: (x: number, y: number) => void;
   onToggleFavorite: (id: number) => void;
@@ -123,7 +127,7 @@ export function Canvas({
   transitions,
   viewport,
   setViewport,
-  selectedId,
+  selectedIds,
   selectedEdgeId,
   snapToGrid,
   suggestions,
@@ -193,22 +197,39 @@ export function Canvas({
 
   const startNodeDrag = (e: React.PointerEvent, track: Track) => {
     e.stopPropagation();
-    onSelect(track.id);
+    const additive = e.metaKey || e.ctrlKey || e.shiftKey;
+
+    /*
+     * Grabbing a node that is already part of a selection moves the whole
+     * selection — the Finder rule. Grabbing anything else selects just it, so a
+     * plain drag never silently carries nodes you forgot were selected.
+     */
+    const group = additive || selectedIds.has(track.id)
+      ? new Set(selectedIds).add(track.id)
+      : new Set([track.id]);
+
+    onSelect(track.id, additive);
     onSelectEdge(null);
+
     // Mid-animation the displayed position is a blend, so wait for it to settle.
     const inLayout = !!layout && arrangeT > 0.99;
     if (arranged && !inLayout) return;
+    // A ⌘-click that deselects the node shouldn't then drag it.
+    if (additive && selectedIds.has(track.id)) return;
 
-    const base = inLayout ? posOf(track) : { x: track.x, y: track.y };
-    const p = toWorld(e.clientX, e.clientY);
+    const start = new Map<number, { x: number; y: number }>();
+    for (const id of group) {
+      const member = byId.get(id);
+      if (member) start.set(id, inLayout ? posOf(member) : { x: member.x, y: member.y });
+    }
+
     setInteraction({
       type: 'drag',
-      id: track.id,
-      dx: p.x - base.x,
-      dy: p.y - base.y,
+      primary: track.id,
+      ids: [...start.keys()],
+      origin: toWorld(e.clientX, e.clientY),
+      start,
       moved: false,
-      fromX: base.x,
-      fromY: base.y,
       inLayout,
     });
   };
@@ -235,10 +256,16 @@ export function Canvas({
       const p = toWorld(e.clientX, e.clientY);
 
       if (interaction.type === 'drag') {
-        const nx = p.x - interaction.dx;
-        const ny = p.y - interaction.dy;
-        if (interaction.inLayout) onLayoutMove(interaction.id, nx, ny);
-        else onMove(interaction.id, nx, ny);
+        // One delta for the whole group, so relative spacing survives the drag.
+        const dx = p.x - interaction.origin.x;
+        const dy = p.y - interaction.origin.y;
+        const moves = interaction.ids.flatMap((id) => {
+          const from = interaction.start.get(id);
+          return from ? [{ id, x: from.x + dx, y: from.y + dy }] : [];
+        });
+
+        if (interaction.inLayout) onLayoutMove(moves);
+        else for (const m of moves) onMove(m.id, m.x, m.y);
         if (!interaction.moved) setInteraction({ ...interaction, moved: true });
         return;
       }
@@ -256,21 +283,35 @@ export function Canvas({
 
     const up = () => {
       if (interaction.type === 'drag' && interaction.moved) {
-        const track = byId.get(interaction.id);
-        if (track) {
-          const live = interaction.inLayout ? posOf(track) : { x: track.x, y: track.y };
-          const x = snapToGrid ? Math.round(live.x / GRID) * GRID : live.x;
-          const y = snapToGrid ? Math.round(live.y / GRID) * GRID : live.y;
+        const primary = byId.get(interaction.primary);
+        const from = interaction.start.get(interaction.primary);
+        if (primary && from) {
+          /*
+           * Snapping is measured on the node you were actually holding and then
+           * applied to the group as one offset. Snapping each node on its own
+           * would quietly re-space a selection that was already arranged.
+           */
+          const live = interaction.inLayout ? posOf(primary) : { x: primary.x, y: primary.y };
+          const snapX = snapToGrid ? Math.round(live.x / GRID) * GRID : live.x;
+          const snapY = snapToGrid ? Math.round(live.y / GRID) * GRID : live.y;
+          const dx = snapX - from.x;
+          const dy = snapY - from.y;
+
+          const next = interaction.ids.flatMap((id) => {
+            const base = interaction.start.get(id);
+            return base ? [{ id, x: base.x + dx, y: base.y + dy }] : [];
+          });
+          const previous = interaction.ids.flatMap((id) => {
+            const base = interaction.start.get(id);
+            return base ? [{ id, x: base.x, y: base.y }] : [];
+          });
 
           if (interaction.inLayout) {
-            if (snapToGrid) onLayoutMove(track.id, x, y);
-            onLayoutCommit(track.id, x, y);
+            if (snapToGrid) onLayoutMove(next);
+            onLayoutCommit(next);
           } else {
-            if (snapToGrid) onMove(track.id, x, y);
-            onCommit(
-              [{ id: track.id, x, y }],
-              [{ id: track.id, x: interaction.fromX, y: interaction.fromY }],
-            );
+            if (snapToGrid) for (const m of next) onMove(m.id, m.x, m.y);
+            onCommit(next, previous);
           }
         }
       }
@@ -505,8 +546,8 @@ export function Canvas({
             x={p.x}
             y={p.y}
             locked={arranged && !(!!layout && arrangeT > 0.99)}
-            selected={selectedId === track.id}
-            dragging={interaction?.type === 'drag' && interaction.id === track.id}
+            selected={selectedIds.has(track.id)}
+            dragging={interaction?.type === 'drag' && interaction.ids.includes(track.id)}
             linkTarget={interaction?.type === 'link' && interaction.overId === track.id}
             linkSource={interaction?.type === 'link' && interaction.fromId === track.id}
             suggestion={suggestions.get(track.id) ?? null}
@@ -565,6 +606,38 @@ function zoomAround(v: Viewport, el: HTMLElement | null, factor: number): Viewpo
   const k = clamp(v.k * factor, MIN_ZOOM, MAX_ZOOM);
   const scale = k / v.k;
   return { k, x: px - (px - v.x) * scale, y: py - (py - v.y) * scale };
+}
+
+/**
+ * Slides the view onto `tracks` without touching the zoom.
+ *
+ * Selecting a set used to call `fitView`, which reads the whole library's
+ * bounding box — so opening a four-track set zoomed all the way out to wherever
+ * your furthest unrelated node happened to sit. This only pans: the nodes stay
+ * exactly the size you were working at, and the set arrives in the middle.
+ */
+export function centerOnTracks(
+  tracks: Track[],
+  el: HTMLElement | null,
+  positions: Positions | null,
+  current: Viewport,
+): Viewport {
+  if (!tracks.length) return current;
+  const rect = el?.getBoundingClientRect();
+  const width = rect?.width ?? 1200;
+  const height = rect?.height ?? 800;
+
+  const at = (t: Track) => positions?.get(t.id) ?? { x: t.x, y: t.y };
+  const minX = Math.min(...tracks.map((t) => at(t).x));
+  const minY = Math.min(...tracks.map((t) => at(t).y));
+  const maxX = Math.max(...tracks.map((t) => at(t).x + NODE_W));
+  const maxY = Math.max(...tracks.map((t) => at(t).y + NODE_H));
+
+  return {
+    k: current.k,
+    x: width / 2 - ((minX + maxX) / 2) * current.k,
+    y: height / 2 - ((minY + maxY) / 2) * current.k,
+  };
 }
 
 /**

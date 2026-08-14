@@ -31,8 +31,6 @@ export function GeneratorModal({ tracks, transitions, settings, onSave, onClose 
   const [chosen, setChosen] = useState<number | null>(null);
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
-  /** Where a ⇧-click measures its range from. */
-  const anchor = useRef<number | null>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -54,7 +52,6 @@ export function GeneratorModal({ tracks, transitions, settings, onSave, onClose 
   useEffect(() => {
     if (firstRender.current) { firstRender.current = false; return; }
     setPool(new Set(listed.map((t) => t.id)));
-    anchor.current = null;
     // Only a change of genre re-stocks; editing the pool by hand must not.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [genres]);
@@ -65,46 +62,16 @@ export function GeneratorModal({ tracks, transitions, settings, onSave, onClose 
   );
   const maxLength = Math.max(2, poolTracks.length);
 
-  /**
-   * Finder-style selection: a plain click takes just that track, ⌘/Ctrl-click
-   * toggles one, ⇧-click adds everything between it and the last click.
-   */
-  const clickRow = (e: React.MouseEvent, id: number, index: number) => {
-    const additive = e.metaKey || e.ctrlKey;
-    const ranged = e.shiftKey && anchor.current != null;
+  /** A row is a checkbox: click it to put the track in or out of the pool. */
+  const toggle = (id: number) =>
+    setPool((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
-    if (ranged) {
-      const start = listed.findIndex((t) => t.id === anchor.current);
-      if (start >= 0) {
-        const [lo, hi] = start < index ? [start, index] : [index, start];
-        const span = listed.slice(lo, hi + 1).map((t) => t.id);
-        setPool((prev) => {
-          const next = new Set(prev);
-          for (const trackId of span) next.add(trackId);
-          return next;
-        });
-        return;
-      }
-    }
-
-    anchor.current = id;
-    if (additive) {
-      setPool((prev) => {
-        const next = new Set(prev);
-        if (next.has(id)) next.delete(id);
-        else next.add(id);
-        return next;
-      });
-      return;
-    }
-    // A bare click means "just this one" — the quick buttons above put the rest back.
-    setPool(new Set([id]));
-  };
-
-  const selectAll = () => {
-    setPool(new Set(listed.map((t) => t.id)));
-    anchor.current = null;
-  };
+  const selectAll = () => setPool(new Set(listed.map((t) => t.id)));
 
   const run = () => {
     const outcome = generateSetlists({
@@ -189,38 +156,24 @@ export function GeneratorModal({ tracks, transitions, settings, onSave, onClose 
                   <h3>Use these tracks</h3>
                   <div className="gen-quick">
                     <button className="ghost tiny" onClick={selectAll}>All</button>
-                    <button className="ghost tiny" onClick={() => { setPool(new Set()); anchor.current = null; }}>
-                      None
-                    </button>
+                    <button className="ghost tiny" onClick={() => setPool(new Set())}>None</button>
                     <button
                       className="ghost tiny"
-                      onClick={() => {
-                        setPool(new Set(listed.filter((t) => t.favorite).map((t) => t.id)));
-                        anchor.current = null;
-                      }}
+                      onClick={() => setPool(new Set(listed.filter((t) => t.favorite).map((t) => t.id)))}
                     >
                       <Star size={11} aria-hidden="true" /> Starred
                     </button>
                   </div>
                 </div>
-                <div
-                  className="gen-pool"
-                  tabIndex={-1}
-                  onKeyDown={(e) => {
-                    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a') {
-                      e.preventDefault();
-                      selectAll();
-                    }
-                  }}
-                >
-                  {listed.map((t, i) => {
+                <div className="gen-pool">
+                  {listed.map((t) => {
                     const on = pool.has(t.id);
                     const genre = normalizeGenre(t.genre ?? '');
                     return (
                       <button
                         key={t.id}
                         className={`pool-row ${on ? 'on' : ''}`}
-                        onClick={(e) => clickRow(e, t.id, i)}
+                        onClick={() => toggle(t.id)}
                         aria-pressed={on}
                       >
                         <span className="pool-check">{on && <Check size={12} />}</span>
@@ -238,8 +191,8 @@ export function GeneratorModal({ tracks, transitions, settings, onSave, onClose 
                   )}
                 </div>
                 <p className="muted small pool-hint">
-                  {poolTracks.length} of {listed.length} selected · click picks one,
-                  ⌘-click adds, ⇧-click adds a range
+                  {poolTracks.length} of {listed.length} selected · the slider decides how many
+                  of them end up in the set
                 </p>
               </section>
 

@@ -4,15 +4,16 @@ A node graph for planning DJ sets. Add tracks with their BPM, get ranked
 suggestions for what mixes out of them, and wire the good transitions together
 so every branch off a track is a setlist u can actually play.
 
-A Mac app. No AI, no API keys, no account, no network calls of any kind — the
-matching is arithmetic over ur own library, and that library is a SQLite file in
-ur Music folder that u can copy, back up or delete yourself.
+A Mac app. No AI, no API keys, no account — the matching is arithmetic over ur
+own library, and that library is a SQLite file in ur Music folder that u can
+copy, back up or delete yourself. The only time it touches the network is when u
+ask it to check for a new version.
 
 Share sets with others by downloading and uploading lightweight json files w/ all ur songs.
 
 ## Download
 
-**[djtree 0.1.1 for Apple Silicon](https://github.com/eggshaan/djtree/releases/download/v0.1.1/djtree-0.1.1-arm64.dmg)** (118 MB) · [all releases](https://github.com/eggshaan/djtree/releases)
+**[djtree 0.1.2 for Apple Silicon](https://github.com/eggshaan/djtree/releases/download/v0.1.2/djtree-0.1.2-arm64.dmg)** (118 MB) · [all releases](https://github.com/eggshaan/djtree/releases)
 
 1. Open the `.dmg` and drag **djtree** into Applications.
 2. Clear the quarantine flag macOS attached to the download:
@@ -31,11 +32,23 @@ rather not use the terminal, open the app once, let macOS refuse, then go to
 Check the download arrived intact:
 
 ```
-shasum -a 256 djtree-0.1.1-arm64.dmg
-4c84163e8b5fcaa5dbc716c1666290a78f1115e441ff89fbcbfba5466118aef7
+shasum -a 256 djtree-0.1.2-arm64.dmg
+0d0c01456c0a6adce0b6e981d6d66493dee11d9be99bc75ed04439ff2987da9c
 ```
 
-### Why that step exists
+### Updating
+
+**djtree → Check for Updates…** asks GitHub what the newest release is and
+tells you if you are behind. It only runs when you pick it — nothing checks on
+launch, on a timer, or in the background — so an install that never uses the
+menu item never makes a network request at all.
+
+There is no in-place install: without a Developer ID signature macOS will not
+let an app update itself, so the dialog opens the release page and you drag the
+new copy over the old one, quarantine step and all. Which is what the next
+section is about.
+
+### Why the quarantine step exists
 
 macOS tags everything downloaded from the internet with a `com.apple.quarantine`
 attribute. Before running a quarantined app, Gatekeeper looks for a signature
@@ -107,6 +120,7 @@ only empty fields are filled — anything you corrected by hand outranks the tag
 | Delete | Select a node or edge, press `Delete` |
 | Fit everything on screen | `f`, or the fit button |
 | Hide the side panels | `[` and `]` |
+| Select several nodes | ⌘-click or ⇧-click them — dragging any one moves them all |
 | Light / dark | The sun/moon button in the toolbar |
 
 **Linking asks for the mix.** Drawing a link doesn't save one. Every route to a
