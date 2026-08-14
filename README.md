@@ -2,10 +2,12 @@
 
 A node graph for planning DJ sets. Add tracks with their BPM, get ranked
 suggestions for what mixes out of them, and wire the good transitions together
-so every branch off a track is a setlist you can actually play.
+so every branch off a track is a setlist u can actually play.
 
-No AI, no API keys, no network calls — the matching is arithmetic over your own
+No AI, no API keys, no network calls, the matching is arithmetic over ur own
 library, running in the browser.
+
+Share sets with others by downloading and uploading lightweight json files w/ all ur songs.
 
 ## Run it
 
